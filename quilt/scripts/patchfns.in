@@ -221,7 +221,7 @@ patch_in_series()
 
 	if [ -e "$SERIES" ]
 	then
-		grep -q "^$(quote_grep_re $patch)\([ \t]\|$\)" "$SERIES"
+		grep -q "^[[:space:]]*$(quote_grep_re $patch)\([ \t]\|$\)" "$SERIES"
 	else
 		return 1
 	fi
@@ -250,8 +250,11 @@ insert_in_series()
 	if [ -n "$before" ]
 	then
 		awk '
-		/^'"$(quote_awk_re $before)"'([ \t]|$)/ \
-				{ print "'"$patch$patch_args"'" }
+		/^[[:space:]]*'"$(quote_awk_re $before)"'([ \t]|$)/ \
+				{
+					match($0, "^([[:space:]]*)'"$(quote_awk_re $before | sed -e 's:\\:\\\\:g')"'([ \t]|$)", a)
+					print a[1] "'"$patch$patch_args"'"
+				}
 				{ print }
 		' "$SERIES" > $tmpfile
 		status=$?
@@ -280,7 +283,7 @@ remove_from_series()
 
 	tmpfile=$(gen_tempfile) || return 1
 	awk '
-	! /^'"$(quote_awk_re $patch)"'([ \t]|$)/ \
+	! /^[[:space:]]*'"$(quote_awk_re $patch)"'([ \t]|$)/ \
 				{ print }
 	' "$SERIES" > $tmpfile
 	if [ $? -ne 0 ]
@@ -298,7 +301,7 @@ rename_in_series()
 
 	tmpfile=$(gen_tempfile) || return 1
 	awk '
-	/^'"$(quote_awk_re $from)"'([ \t]|$)/ \
+	/^[[:space:]]*'"$(quote_awk_re $from)"'([ \t]|$)/ \
 		{ sub(/'"$(quote_awk_re $from)"'/, "'"${to//\"/\\\"}"'")
 		  good=1 }
 		{ print }
@@ -349,8 +352,10 @@ cat_series()
 {
 	if [ -e "$SERIES" ]
 	then
-		sed -e '/^#/d' -e 's/^[ '$'\t'']*//' \
-		    -e 's/[ '$'\t''].*//' -e '/^$/d' "$SERIES"
+		sed -e '/^[[:space:]]*[-#+]/d' \
+		    -e 's/^[ '$'\t'']*//' \
+		    -e 's/[ '$'\t''].*//' \
+		    -e '/^$/d' "$SERIES"
 	else
 		return 1
 	fi
@@ -526,9 +531,10 @@ find_patch()
 		fi
 
 		local patch=${1#$SUBDIR_DOWN$QUILT_PATCHES/}
-		local bre=$(quote_sed_re "$patch")
-		set -- $(sed -e "/^$bre\(\|\.patch\|\.diff\?\)\(\|\.gz\|\.bz2\|\.xz\|\.lzma\|\.lz\|\.zst\)\([ "$'\t'"]\|$\)/!d" \
-			       -e 's/[ '$'\t''].*//' "$SERIES")
+		set -- $(cat_series | awk '
+			/^'"$(quote_awk_re $patch)"'(.patch|.diff)?(.gz|.bz2|.xz|.lzma|.lz|.zst)?/ {
+				print $1
+				}')
 		if [ $# -eq 1 ]
 		then
 			echo $1
